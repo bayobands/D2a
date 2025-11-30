@@ -34,7 +34,7 @@ const redoBtn = document.createElement("button");
 redoBtn.textContent = "Redo";
 buttonRow.appendChild(redoBtn);
 
-// Step 6 marker buttons
+// Marker buttons
 const thinBtn = document.createElement("button");
 thinBtn.textContent = "Thin Marker";
 thinBtn.classList.add("selectedTool");
@@ -44,7 +44,7 @@ const thickBtn = document.createElement("button");
 thickBtn.textContent = "Thick Marker";
 buttonRow.appendChild(thickBtn);
 
-// STEP 8A sticker buttons
+// Sticker buttons
 const stickerRow = document.createElement("div");
 document.body.appendChild(stickerRow);
 
@@ -58,20 +58,15 @@ stickers.forEach((stk) => {
 
   btn.addEventListener("click", () => {
     currentSticker = stk;
-    currentThickness = 0; // disable marker thickness when using sticker tool
-
-    // Highlight selected
-    document.querySelectorAll("button").forEach((b) =>
-      b.classList.remove("selectedTool")
-    );
-    btn.classList.add("selectedTool");
+    currentThickness = 0; // disable marker thickness
+    selectTool(btn);
   });
 });
 
-// Current marker thickness
+// Marker thickness
 let currentThickness = 2;
 
-// Highlight tool helper
+// Tool highlight helper
 function selectTool(btn: HTMLButtonElement) {
   document.querySelectorAll("button").forEach((b) =>
     b.classList.remove("selectedTool")
@@ -79,12 +74,13 @@ function selectTool(btn: HTMLButtonElement) {
   btn.classList.add("selectedTool");
 }
 
-// Marker selection (when not in sticker tool mode)
+// Marker tool selection
 thinBtn.addEventListener("click", () => {
-  currentSticker = null; // leave sticker mode
+  currentSticker = null;
   currentThickness = 2;
   selectTool(thinBtn);
 });
+
 thickBtn.addEventListener("click", () => {
   currentSticker = null;
   currentThickness = 7;
@@ -92,13 +88,15 @@ thickBtn.addEventListener("click", () => {
 });
 
 // ======================================================
-// COMMAND INTERFACE + COMMANDS
+// COMMAND INTERFACES
 // ======================================================
-
 interface DisplayCommand {
   display(ctx: CanvasRenderingContext2D): void;
 }
 
+// ======================================================
+// MARKER COMMAND
+// ======================================================
 class MarkerCommand implements DisplayCommand {
   points: Array<[number, number]> = [];
   thickness: number;
@@ -117,7 +115,6 @@ class MarkerCommand implements DisplayCommand {
 
     ctx.lineWidth = this.thickness;
     ctx.lineCap = "round";
-
     ctx.beginPath();
     ctx.moveTo(this.points[0][0], this.points[0][1]);
 
@@ -129,7 +126,9 @@ class MarkerCommand implements DisplayCommand {
   }
 }
 
-// --- NEW FOR STEP 8A: Sticker Command ---
+// ======================================================
+// STICKER COMMAND (Step 8a)
+// ======================================================
 class StickerCommand implements DisplayCommand {
   x: number;
   y: number;
@@ -150,18 +149,78 @@ class StickerCommand implements DisplayCommand {
 }
 
 // ======================================================
+// STICKER PREVIEW COMMAND (Step 8b)
+// ======================================================
+class StickerPreviewCommand implements DisplayCommand {
+  x: number;
+  y: number;
+  sticker: string;
+
+  constructor(x: number, y: number, sticker: string) {
+    this.x = x;
+    this.y = y;
+    this.sticker = sticker;
+  }
+
+  update(x: number, y: number, sticker: string) {
+    this.x = x;
+    this.y = y;
+    this.sticker = sticker;
+  }
+
+  display(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.font = "24px serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(this.sticker, this.x, this.y);
+    ctx.restore();
+  }
+}
+
+// ======================================================
+// MARKER PREVIEW COMMAND (Step 7)
+// ======================================================
+class ToolPreviewCommand implements DisplayCommand {
+  x: number;
+  y: number;
+  thickness: number;
+
+  constructor(x: number, y: number, thickness: number) {
+    this.x = x;
+    this.y = y;
+    this.thickness = thickness;
+  }
+
+  update(x: number, y: number, thickness: number) {
+    this.x = x;
+    this.y = y;
+    this.thickness = thickness;
+  }
+
+  display(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.thickness / 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ======================================================
 // DATA STRUCTURES
 // ======================================================
 let displayList: DisplayCommand[] = [];
 let redoStack: DisplayCommand[] = [];
 
 let currentCommand: MarkerCommand | null = null;
-
-// Preview is OFF in Step 8a
-const _previewCommand = null;
+let previewCommand: StickerPreviewCommand | ToolPreviewCommand | null = null;
 
 // ======================================================
-// REDRAW
+// REDRAW FUNCTION
 // ======================================================
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -169,13 +228,59 @@ function redraw() {
   for (const cmd of displayList) {
     cmd.display(ctx);
   }
+
+  if (!currentCommand && previewCommand) {
+    previewCommand.display(ctx);
+  }
 }
 
 canvas.addEventListener("drawing-changed", redraw);
+canvas.addEventListener("tool-moved", redraw);
 
 // ======================================================
 // MOUSE EVENTS
 // ======================================================
+canvas.addEventListener("mousemove", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  // --- STEP 8b: Sticker Preview ---
+  if (currentSticker) {
+    const safeSticker = currentSticker ?? "";
+
+    if (
+      !previewCommand ||
+      !(previewCommand instanceof StickerPreviewCommand)
+    ) {
+      previewCommand = new StickerPreviewCommand(x, y, safeSticker);
+    } else {
+      previewCommand.update(x, y, safeSticker);
+    }
+
+    canvas.dispatchEvent(new Event("tool-moved"));
+    return;
+  }
+
+  // --- Marker Preview (Step 7) ---
+  if (
+    !previewCommand ||
+    !(previewCommand instanceof ToolPreviewCommand)
+  ) {
+    previewCommand = new ToolPreviewCommand(x, y, currentThickness);
+  } else {
+    previewCommand.update(x, y, currentThickness);
+  }
+
+  canvas.dispatchEvent(new Event("tool-moved"));
+
+  if (currentCommand) {
+    currentCommand.drag(x, y);
+    canvas.dispatchEvent(new Event("drawing-changed"));
+  }
+});
+
+// Mouse down — place sticker OR start drawing
 canvas.addEventListener("mousedown", (e) => {
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -183,28 +288,18 @@ canvas.addEventListener("mousedown", (e) => {
 
   redoStack = [];
 
+  // --- STEP 8a: Place Sticker ---
   if (currentSticker) {
-    // STEP 8A: Place sticker immediately
-    const stickerCmd = new StickerCommand(x, y, currentSticker);
+    const safeSticker = currentSticker ?? "";
+    const stickerCmd = new StickerCommand(x, y, safeSticker);
     displayList.push(stickerCmd);
     canvas.dispatchEvent(new Event("drawing-changed"));
     return;
   }
 
-  // Marker mode
+  // Start a marker stroke
   currentCommand = new MarkerCommand(x, y, currentThickness);
   displayList.push(currentCommand);
-  canvas.dispatchEvent(new Event("drawing-changed"));
-});
-
-canvas.addEventListener("mousemove", (e) => {
-  if (!currentCommand) return;
-
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-
-  currentCommand.drag(x, y);
   canvas.dispatchEvent(new Event("drawing-changed"));
 });
 
@@ -222,19 +317,13 @@ clearBtn.addEventListener("click", () => {
 
 undoBtn.addEventListener("click", () => {
   if (displayList.length === 0) return;
-
-  const popped = displayList.pop()!;
-  redoStack.push(popped);
-
+  redoStack.push(displayList.pop()!);
   canvas.dispatchEvent(new Event("drawing-changed"));
 });
 
 redoBtn.addEventListener("click", () => {
   if (redoStack.length === 0) return;
-
-  const popped = redoStack.pop()!;
-  displayList.push(popped);
-
+  displayList.push(redoStack.pop()!);
   canvas.dispatchEvent(new Event("drawing-changed"));
 });
 
