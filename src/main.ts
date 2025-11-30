@@ -17,24 +17,32 @@ document.body.appendChild(canvas);
 
 const ctx = canvas.getContext("2d")!;
 
-// --- Clear Button ---
+// --- Buttons ---
+const buttonRow = document.createElement("div");
+document.body.appendChild(buttonRow);
+
 const clearBtn = document.createElement("button");
 clearBtn.textContent = "Clear";
-document.body.appendChild(clearBtn);
+buttonRow.appendChild(clearBtn);
+
+const undoBtn = document.createElement("button");
+undoBtn.textContent = "Undo";
+buttonRow.appendChild(undoBtn);
+
+const redoBtn = document.createElement("button");
+redoBtn.textContent = "Redo";
+buttonRow.appendChild(redoBtn);
 
 // =============================
-// STEP 3 DATA STRUCTURES
+// DATA STRUCTURES
 // =============================
-
-// displayList is an array of strokes
-// each stroke is an array of points: [x, y]
 let displayList: Array<Array<[number, number]>> = [];
+let redoStack: Array<Array<[number, number]>> = [];
 
-// current stroke user is drawing (null if not drawing)
 let currentStroke: Array<[number, number]> | null = null;
 
 // =============================
-// STEP 3 REDRAW FUNCTION
+// REDRAW
 // =============================
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -53,13 +61,12 @@ function redraw() {
   }
 }
 
-// Listen for the custom event
 canvas.addEventListener("drawing-changed", () => {
   redraw();
 });
 
 // =============================
-// STEP 3 MOUSE EVENTS
+// MOUSE EVENTS
 // =============================
 canvas.addEventListener("mousedown", (e) => {
   const rect = canvas.getBoundingClientRect();
@@ -68,8 +75,8 @@ canvas.addEventListener("mousedown", (e) => {
 
   currentStroke = [[x, y]];
   displayList.push(currentStroke);
+  redoStack = []; // new drawing clears redo history
 
-  // stroke changed
   canvas.dispatchEvent(new Event("drawing-changed"));
 });
 
@@ -81,7 +88,6 @@ canvas.addEventListener("mousemove", (e) => {
   const y = e.clientY - rect.top;
 
   currentStroke.push([x, y]);
-
   canvas.dispatchEvent(new Event("drawing-changed"));
 });
 
@@ -94,14 +100,36 @@ canvas.addEventListener("mouseleave", () => {
 });
 
 // =============================
-// CLEAR BUTTON
+// CLEAR
 // =============================
 clearBtn.addEventListener("click", () => {
   displayList = [];
+  redoStack = [];
   canvas.dispatchEvent(new Event("drawing-changed"));
 });
 
-// Example asset block
+// =============================
+// UNDO / REDO
+// =============================
+undoBtn.addEventListener("click", () => {
+  if (displayList.length === 0) return;
+
+  const popped = displayList.pop()!;
+  redoStack.push(popped);
+
+  canvas.dispatchEvent(new Event("drawing-changed"));
+});
+
+redoBtn.addEventListener("click", () => {
+  if (redoStack.length === 0) return;
+
+  const popped = redoStack.pop()!;
+  displayList.push(popped);
+
+  canvas.dispatchEvent(new Event("drawing-changed"));
+});
+
+// Example image
 const example = document.createElement("p");
 example.innerHTML =
   `Example asset: <img src="${exampleIconUrl}" class="icon" />`;
