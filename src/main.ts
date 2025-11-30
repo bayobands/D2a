@@ -34,7 +34,7 @@ const redoBtn = document.createElement("button");
 redoBtn.textContent = "Redo";
 buttonRow.appendChild(redoBtn);
 
-// --- Step 6 Controls: Thin + Thick Marker ---
+// Step 6 marker buttons
 const thinBtn = document.createElement("button");
 thinBtn.textContent = "Thin Marker";
 thinBtn.classList.add("selectedTool");
@@ -44,17 +44,17 @@ const thickBtn = document.createElement("button");
 thickBtn.textContent = "Thick Marker";
 buttonRow.appendChild(thickBtn);
 
-// Current tool thickness
+// Current marker thickness
 let currentThickness = 2;
 
-// Highlight selection helper
+// Highlight tool helper
 function selectTool(btn: HTMLButtonElement) {
   thinBtn.classList.remove("selectedTool");
   thickBtn.classList.remove("selectedTool");
   btn.classList.add("selectedTool");
 }
 
-// Tool selection events
+// Tool selection
 thinBtn.addEventListener("click", () => {
   currentThickness = 2;
   selectTool(thinBtn);
@@ -65,7 +65,7 @@ thickBtn.addEventListener("click", () => {
 });
 
 // ======================================================
-// STEP 6: COMMAND INTERFACE + UPDATED MARKER COMMAND
+// STEP 7: COMMANDS
 // ======================================================
 
 interface DisplayCommand {
@@ -102,12 +102,44 @@ class MarkerCommand implements DisplayCommand {
   }
 }
 
+// --- NEW FOR STEP 7 ---
+class ToolPreviewCommand implements DisplayCommand {
+  x: number;
+  y: number;
+  thickness: number;
+
+  constructor(x: number, y: number, thickness: number) {
+    this.x = x;
+    this.y = y;
+    this.thickness = thickness;
+  }
+
+  update(x: number, y: number, thickness: number) {
+    this.x = x;
+    this.y = y;
+    this.thickness = thickness;
+  }
+
+  display(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.thickness / 2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
 // ======================================================
 // DATA STRUCTURES
 // ======================================================
 let displayList: DisplayCommand[] = [];
 let redoStack: DisplayCommand[] = [];
 let currentCommand: MarkerCommand | null = null;
+let previewCommand: ToolPreviewCommand | null = null;
 
 // ======================================================
 // REDRAW
@@ -115,18 +147,43 @@ let currentCommand: MarkerCommand | null = null;
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // draw actual strokes
   for (const cmd of displayList) {
     cmd.display(ctx);
   }
+
+  // draw preview if mouse is not down
+  if (!currentCommand && previewCommand) {
+    previewCommand.display(ctx);
+  }
 }
 
-canvas.addEventListener("drawing-changed", () => {
-  redraw();
-});
+canvas.addEventListener("drawing-changed", redraw);
+canvas.addEventListener("tool-moved", redraw);
 
 // ======================================================
 // MOUSE EVENTS
 // ======================================================
+canvas.addEventListener("mousemove", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  // update preview ANY time mouse moves
+  if (!previewCommand) {
+    previewCommand = new ToolPreviewCommand(x, y, currentThickness);
+  } else {
+    previewCommand.update(x, y, currentThickness);
+  }
+
+  canvas.dispatchEvent(new Event("tool-moved"));
+
+  if (currentCommand) {
+    currentCommand.drag(x, y);
+    canvas.dispatchEvent(new Event("drawing-changed"));
+  }
+});
+
 canvas.addEventListener("mousedown", (e) => {
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -135,18 +192,6 @@ canvas.addEventListener("mousedown", (e) => {
   currentCommand = new MarkerCommand(x, y, currentThickness);
   displayList.push(currentCommand);
   redoStack = [];
-
-  canvas.dispatchEvent(new Event("drawing-changed"));
-});
-
-canvas.addEventListener("mousemove", (e) => {
-  if (!currentCommand) return;
-
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-
-  currentCommand.drag(x, y);
 
   canvas.dispatchEvent(new Event("drawing-changed"));
 });
